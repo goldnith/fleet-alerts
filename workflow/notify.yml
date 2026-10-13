@@ -1,0 +1,27 @@
+name: Arrival alerts
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'     # about every 5 minutes (GitHub may run it a few minutes late)
+  workflow_dispatch:           # lets you press "Run workflow" to test it
+
+concurrency:
+  group: arrival-alerts
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci --omit=dev
+      - run: node notify.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}

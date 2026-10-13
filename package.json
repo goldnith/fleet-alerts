@@ -1,0 +1,13 @@
+{
+  "name": "fleet-console-alert-sender",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sends overdue / due-back-soon push alerts for Fleet Console, on a schedule.",
+  "scripts": { "start": "node notify.mjs", "test": "node test.mjs" },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "web-push": "^3.6.7"
+  }
+}

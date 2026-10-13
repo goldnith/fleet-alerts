@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Create push keys — Asal Velan Carzz</title>
+<style>
+  body{font-family:'IBM Plex Sans',Arial,sans-serif;background:#0A0E11;color:#E7EEF1;max-width:640px;margin:0 auto;padding:36px 22px;line-height:1.6;}
+  h1{font-size:20px;margin:0 0 4px;} .sub{color:#8CA0AA;font-size:13px;margin-bottom:22px;}
+  .card{background:#12191E;border:1px solid #28343C;border-radius:10px;padding:18px 20px;margin-bottom:16px;}
+  button{background:#F2A93B;color:#141414;border:none;border-radius:7px;padding:11px 20px;font-weight:600;font-size:14px;cursor:pointer;font-family:inherit;}
+  button.secondary{background:#19222A;color:#E7EEF1;border:1px solid #28343C;padding:8px 14px;font-size:13px;}
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  textarea{width:100%;background:#0A0E11;color:#E7EEF1;border:1px solid #28343C;border-radius:8px;padding:10px;font-family:'IBM Plex Mono',monospace;font-size:12px;resize:none;}
+  .warn{background:rgba(242,85,85,.1);border:1px solid rgba(242,85,85,.4);color:#F25555;border-radius:8px;padding:12px 14px;font-size:13px;margin:12px 0;}
+  .ok{color:#22C55E;} .bad{color:#F25555;} .muted{color:#8CA0AA;font-size:13px;}
+  #result{display:none;}
+</style>
+</head>
+<body>
+  <h1>Create push keys</h1>
+  <div class="sub">One-time setup for notifications that arrive even when the app is closed. Everything happens in this browser tab.</div>
+
+  <div class="card">
+    <div id="status" class="muted">Checking Firestore…</div>
+    <p class="muted">This makes a key pair. The <b>public</b> half is saved to your Firestore database (the app and the sender read it from there). The <b>private</b> half is shown once below — you paste it into GitHub as the secret <code>VAPID_PRIVATE_KEY</code>.</p>
+    <button id="genBtn" disabled>Create keys</button>
+  </div>
+
+  <div class="card" id="result">
+    <div class="ok" style="font-weight:600;margin-bottom:8px;">Done — public key saved to Firestore.</div>
+    <div class="muted">Your PRIVATE key (copy it now):</div>
+    <textarea id="privateKey" rows="2" readonly></textarea>
+    <div style="margin-top:8px;"><button class="secondary" id="copyBtn">Copy private key</button></div>
+    <div class="warn">Keep this private. Put it only in the GitHub secret <b>VAPID_PRIVATE_KEY</b> — never in a file, a chat, or the repository. This page cannot show it again; if you lose it, just run this page again (devices will re-subscribe by themselves the next time the app is opened).</div>
+  </div>
+
+<script type="module">
+const firebaseConfig = {
+  apiKey: "AIzaSyAjlItj4kob-LpMvKwlomd7x20-l-QVkLg",
+  authDomain: "asal-velan-carzz.firebaseapp.com",
+  projectId: "asal-velan-carzz",
+  storageBucket: "asal-velan-carzz.firebasestorage.app",
+  messagingSenderId: "456353493078",
+  appId: "1:456353493078:web:9338afd78631acc5590bf7"
+};
+
+/* KEYGEN-START */
+function b64url(bytes){
+  let s = '';
+  for(const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+async function generateVapidKeys(){
+  const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const publicRaw = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey));   // 65-byte uncompressed point
+  const jwk = await crypto.subtle.exportKey('jwk', pair.privateKey);                         // jwk.d = 32-byte private scalar
+  return { publicKey: b64url(publicRaw), privateKey: jwk.d };
+}
+/* KEYGEN-END */
+
+const statusEl = document.getElementById('status');
+const genBtn = document.getElementById('genBtn');
+let db = null, fs = null, existing = null;
+
+try{
+  if(!crypto || !crypto.subtle) throw new Error('This browser tab cannot generate keys (open the page in Chrome, Edge or Firefox).');
+  const { initializeApp } = await import("https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js");
+  fs = await import("https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js");
+  db = fs.getFirestore(initializeApp(firebaseConfig));
+  const snap = await fs.getDoc(fs.doc(db, 'config', 'push'));
+  existing = snap.exists() ? snap.data() : null;
+  statusEl.innerHTML = existing
+    ? '<span class="bad">A push key already exists.</span> Creating a new one replaces it: the old private key stops working, and every device re-subscribes automatically next time the app is opened.'
+    : 'No push key yet — ready to create one.';
+  genBtn.disabled = false;
+}catch(e){
+  statusEl.innerHTML = '<span class="bad">Could not connect: ' + (e.message || e) + '</span>';
+}
+
+genBtn.addEventListener('click', async ()=>{
+  if(existing && !confirm('Replace the existing push key? The old private key will stop working.')) return;
+  genBtn.disabled = true;
+  try{
+    const keys = await generateVapidKeys();
+    await fs.setDoc(fs.doc(db, 'config', 'push'), { publicKey: keys.publicKey, createdAt: Date.now() });
+    document.getElementById('privateKey').value = keys.privateKey;
+    document.getElementById('result').style.display = 'block';
+    statusEl.innerHTML = '<span class="ok">Public key saved.</span>';
+  }catch(e){
+    statusEl.innerHTML = '<span class="bad">Failed: ' + (e.message || e) + '</span>';
+    genBtn.disabled = false;
+  }
+});
+document.getElementById('copyBtn').addEventListener('click', async ()=>{
+  const t = document.getElementById('privateKey');
+  try{ await navigator.clipboard.writeText(t.value); }catch(e){ t.select(); document.execCommand('copy'); }
+  document.getElementById('copyBtn').textContent = 'Copied ✓';
+});
+</script>
+</body>
+</html>
